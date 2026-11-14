@@ -1,0 +1,112 @@
+(define +grid-x+ 100)
+(define +grid-y+ 25)
+(define +grid-size+ (* +grid-y+ +grid-x+))
+(define +initial-alives+ 50) ; Set 50% of the total to ALIVE
+(define +fps+ 15)
+(define +delay-ms+ (quotient 1000 +fps+))
+(define +dead-cell+ #\.)
+(define +alive-cell+ #\*)
+
+(define temp-grid (make-vector +grid-size+ 'dead))
+(define main-grid (make-vector +grid-size+ 'dead))
+(define target-dt (make-time 'time-duration (* +delay-ms+ 1000000) 0))
+(define buf (make-string (+ +grid-size+ +grid-y+)))
+
+(define (vector-shuffle! vec)
+  (let loop ([i (- (vector-length vec) 1)])
+    (when (> i 0)
+      (let* ([j (random (+ i 1))]
+             [tmp (vector-ref vec i)])
+        (vector-set! vec i (vector-ref vec j))
+        (vector-set! vec j tmp)
+        (loop (- i 1)))))
+  vec)
+
+(define (init)
+  (let ([alive-count (quotient (* +grid-size+ +initial-alives+) 100)])
+    (let outer ((i 0))
+      (when (< i alive-count)
+        (vector-set! main-grid i 'alive)
+        (outer (+ i 1))))
+    (vector-shuffle! main-grid)))
+
+(define (draw)
+  (let ([buf-count 0])
+    (let outer ([y 0])
+      (when (< y +grid-y+)
+        (let inner ([x 0])
+          (when (< x +grid-x+)
+            (let ([idx (+ (* y +grid-x+) x)]
+                  [ch +dead-cell+])
+              (when (eq? (vector-ref main-grid idx) 'alive)
+                (set! ch +alive-cell+))
+              (string-set! buf buf-count ch)
+              (set! buf-count (+ buf-count 1)))
+            (inner (+ x 1))))
+        (string-set! buf buf-count #\newline)
+        (set! buf-count (+ buf-count 1))
+        (outer (+ y 1))))
+    (display buf)))
+
+(define (count-neighbors x y)
+  (let ([count 0])
+    (let outer ([dy -1])
+      (when (<= dy 1)
+        (let inner ([dx -1])
+          (when (<= dx 1)
+            (unless (and (= dx 0) (= dy 0))
+              (let ([nx (+ x dx)]
+                    [ny (+ y dy)])
+                (when (and (>= nx 0) (< nx +grid-x+) (>= ny 0) (< ny +grid-y+))
+                  (let ([idx (+ (* ny +grid-x+) nx)])
+                    (when (eq? (vector-ref main-grid idx) 'alive)
+                      (set! count (+ count 1)))))))
+            (inner (+ dx 1))))
+        (outer (+ dy 1))))
+    count))
+
+(define (update)
+  (let outer ([y 0])
+    (when (< y +grid-y+)
+      (let inner ([x 0])
+        (when (< x +grid-x+)
+          (let* ([neighbors (count-neighbors x y)]
+                 [idx (+ (* y +grid-x+) x)]
+                 [current-state (vector-ref main-grid idx)])
+            (if (eq? current-state 'alive)
+              (if (or (<= neighbors 1) (>= neighbors 4))
+                (vector-set! temp-grid idx 'dead)
+                (vector-set! temp-grid idx 'alive))
+              (if (= neighbors 3)
+                (vector-set! temp-grid idx 'alive)
+                (vector-set! temp-grid idx 'dead))))
+          (inner (+ x 1))))
+      (outer (+ y 1))))
+  (vector-copy! temp-grid 0 main-grid 0 (vector-length main-grid)))
+
+(define (run)
+  (dynamic-wind
+    (lambda ()
+      (display "\x1b;[?25l") ; Hide the cursor
+      (display "\x1b;[2J") ; Clear the entire screen
+      (flush-output-port))
+    (lambda ()
+      (random-seed (+ (time-nanosecond (current-time)) 1))
+      (init)
+      (let loop ()
+        (let ([start-time (current-time 'time-monotonic)])
+          (display "\x1b;[H") ; Move the cursor to the top-left of the screen
+          (draw)
+          (flush-output-port)
+          (update)
+          (let ([elapsed (time-difference (current-time 'time-monotonic) start-time)])
+            (when (time<? elapsed target-dt)
+              (sleep (time-difference target-dt elapsed)))))
+        (loop)))
+    (lambda ()
+      (display "\x1b;[?25h") ; Show the cursor
+      (display "\x1b;[2J") ; Clear the entire screen
+      (display "\x1b;[H") ; Move the cursor to the top-left of the screen
+      (flush-output-port))))
+
+(run)
