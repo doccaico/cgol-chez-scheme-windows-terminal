@@ -82,7 +82,9 @@
                 (vector-set! temp-grid idx 'dead))))
           (inner (+ x 1))))
       (outer (+ y 1))))
-  (vector-copy! temp-grid 0 main-grid 0 +grid-size+))
+  (let ([old-main main-grid])
+    (set! main-grid temp-grid)
+    (set! temp-grid old-main)))
 
 (define (run)
   (dynamic-wind
